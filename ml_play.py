@@ -107,9 +107,9 @@ def ml_loop():
             comm.send_instruction(scene_info.frame, PlatformAction.NONE)
         else:
             if plat_x < 100:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
+                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_NONE)
             elif plat_x > 100:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
+                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_NONE)
             else:
                 comm.send_instruction(scene_info.frame, PlatformAction.NONE)
         
