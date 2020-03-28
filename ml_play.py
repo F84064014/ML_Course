@@ -60,7 +60,7 @@ def ml_loop():
         for x in scene_info.hard_bricks:
             if x[1] > lowest:
                 lowest = x[1]
-        print(scene_info.ball)
+        #print(scene_info.ball)
         #print("con1" + str(ball_y>(lowest+10)))
         #print("con2" + str(not lock))
         #print("con3" + str(ball_y-old_y))
@@ -74,21 +74,26 @@ def ml_loop():
             if ball_y == plat_y-5:
                 print("unlock")
                 lock = False
-            if plat_x > est-20:
+            if plat_y-ball_y <= 15:
+                if ball_x < plat_x:
+                    comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
+                else:
+                    comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
+            elif plat_x > est-15:
                 comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
-            elif plat_x < est-20:
+            elif plat_x < est-15:
                 comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
             else:
                 comm.send_instruction(scene_info.frame, PlatformAction.NONE)    
-        elif ball_y > (lowest+110) and not lock and (ball_y - old_y) > 0:
+        elif ball_y > (lowest+150) and not lock and (ball_y - old_y) > 0:
             lock = True
             print("locked")
             vy = (ball_y-old_y)
             vx = abs(ball_x-old_x) #velocity of x
             if vx < 7:
                 vx = 7
-            print("velocity of x =" + str(vx))
-            print("velocity of y =" + str(vy))
+            #print("velocity of x =" + str(vx))
+            #print("velocity of y =" + str(vy))
             #plat_y = 400
             if ball_x - old_x > 0: #move right
                 if (200-ball_x)/vx > (plat_y-ball_y)/vy:
