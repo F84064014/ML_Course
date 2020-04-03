@@ -1,11 +1,16 @@
 """
 The template of the main script of the machine learning process
 """
+import pickle
+from os import path
 
+import numpy as np
 import games.arkanoid.communication as comm
 from games.arkanoid.communication import ( \
     SceneInfo, GameStatus, PlatformAction
 )
+
+
 
 def ml_loop():
     """
@@ -22,21 +27,48 @@ def ml_loop():
     # === Here is the execution order of the loop === #
     # 1. Put the initialization code here.
     ball_served = False
+    #filename = path.join(path.dirname(__file__), 'save', 'clf_KMeans_BallAndDirection.pickle')
+    filename = path.join(path.dirname(__file__), 'save', 'mL_model.pickle')
+    with open(filename, 'rb') as file:
+        clf = pickle.load(file)
+    s = [93, 93]
 
-    lowest = -1 #lowest block position
-    lock = False #locker
-    old_x = 0
-    old_y = 0
-    est = -1 # the estimate position of x
+    def get_direction(ball_x, ball_y, ball_pre_x, ball_pre_y):
+        VectorX = ball_x - ball_pre_x
+        VectorY = ball_y - ball_pre_y
+        if (VectorX >= 0 and VectorY >= 0):
+            return 0
+        elif (VectorX > 0 and VectorY < 0):
+            return 1
+        elif (VectorX < 0 and VectorY > 0):
+            return 2
+        elif (VectorX < 0 and VectorY < 0):
+            return 3
 
     # 2. Inform the game process that ml process is ready before start the loop.
     comm.ml_ready()
+    
+
 
     # 3. Start an endless loop.
     while True:
         # 3.1. Receive the scene information sent from the game process.
         scene_info = comm.get_scene_info()
-
+        feature = []
+        feature.append(scene_info.ball[0])
+        feature.append(scene_info.ball[1]/400)
+        feature.append(scene_info.platform[0])
+        
+        feature.append(get_direction(feature[0],feature[1],s[0],s[1]))
+        feature.append(feature[0]-s[0])
+        feature.append(feature[1]-s[1])
+        feature.append((feature[0]-feature[2])/(feature[1]+1))
+        s = [feature[0], feature[1]]
+        feature = feature[1:]
+        #print(feature)
+        feature = np.array(feature)
+        feature = feature.reshape((-1,len(feature)))
+        #print(feature)
         # 3.2. If the game is over or passed, the game process will reset
         #      the scene and wait for ml process doing resetting job.
         if scene_info.status == GameStatus.GAME_OVER or \
@@ -49,69 +81,21 @@ def ml_loop():
             continue
 
         # 3.3. Put the code here to handle the scene information
-        ball_x = scene_info.ball[0]
-        ball_y = scene_info.ball[1]
-        plat_x = scene_info.platform[0]
-        plat_y = scene_info.platform[1]
-
-        for x in scene_info.bricks:
-            if x[1] > lowest:
-                lowest = x[1]
-        for x in scene_info.hard_bricks:
-            if x[1] > lowest:
-                lowest = x[1]
-        print(scene_info.ball)
-        #print("con1" + str(ball_y>(lowest+10)))
-        #print("con2" + str(not lock))
-        #print("con3" + str(ball_y-old_y))
-        #print(est)
 
         # 3.4. Send the instruction for this frame to the game process
         if not ball_served:
-            comm.send_instruction(scene_info.frame, PlatformAction.SERVE_TO_RIGHT)
+            comm.send_instruction(scene_info.frame, PlatformAction.SERVE_TO_LEFT)
             ball_served = True
-        elif lock == True:
-            if ball_y == plat_y-5:
-                print("unlock")
-                lock = False
-            if plat_x > est-20:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
-            elif plat_x < est-20:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
-            else:
-                comm.send_instruction(scene_info.frame, PlatformAction.NONE)    
-        elif ball_y > (lowest+110) and not lock and (ball_y - old_y) > 0:
-            lock = True
-            print("locked")
-            vy = (ball_y-old_y)
-            vx = abs(ball_x-old_x) #velocity of x
-            if vx < 7:
-                vx = 7
-            print("velocity of x =" + str(vx))
-            print("velocity of y =" + str(vy))
-            #plat_y = 400
-            if ball_x - old_x > 0: #move right
-                if (200-ball_x)/vx > (plat_y-ball_y)/vy:
-                    est = (plat_y-ball_y)/vy*vx+ball_x
-                else: #hit x = 200
-                    hit_y = ball_y+(200-ball_x)/vx*vy
-                    est = 200 - (plat_y-hit_y)/vy*vx
-            else: #move left
-                if (ball_x-0)/vx > (plat_y-ball_y)/vy:
-                    est = ball_x-(plat_y-ball_y)/vy*vx
-                else: #hit x = 0
-                    hit_y = ball_y+ball_x/vx*vy
-                    est = (plat_y-hit_y)/(ball_y-old_y)*vx
-            print("begin with " + str(ball_x) + "," + str(ball_y))
-            print("est=" + str(est))
-            comm.send_instruction(scene_info.frame, PlatformAction.NONE)
-        else:
-            if plat_x < 100:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
-            elif plat_x > 100:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
-            else:
+
+        else:                
+            y = clf.predict(feature)
+
+            if y == 0:
                 comm.send_instruction(scene_info.frame, PlatformAction.NONE)
-        
-        old_x = ball_x
-        old_y = ball_y
+                print('NONE')
+            elif y == 1:
+                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
+                print('LEFT')
+            elif y == 2:
+                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
+                print('RIGHT')
