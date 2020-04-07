@@ -28,7 +28,7 @@ def ml_loop():
     # 1. Put the initialization code here.
     ball_served = False
     #filename = path.join(path.dirname(__file__), 'save', 'clf_KMeans_BallAndDirection.pickle')
-    filename = path.join(path.dirname(__file__), 'save', 'mL_test.pickle')
+    filename = path.join(path.dirname(__file__), 'save', 'sampletest.pickle')
     with open(filename, 'rb') as file:
         clf = pickle.load(file)
     s = [93, 93]
@@ -55,18 +55,21 @@ def ml_loop():
         # 3.1. Receive the scene information sent from the game process.
         scene_info = comm.get_scene_info()
         feature = []
-        feature.append(scene_info.ball[0])
-        feature.append(scene_info.ball[1]/400)
-        feature.append(scene_info.platform[0])
+        feature.append(scene_info.ball[0]) #ballx
+        feature.append(scene_info.ball[1]) #bally
+        feature.append(scene_info.platform[0]) #platx
         
-        feature.append(get_direction(feature[0],feature[1],s[0],s[1]))
-        feature.append(feature[0]-s[0])
-        feature.append(feature[1]-s[1])
-        feature.append((feature[0]-feature[2])/(feature[1]+1))
+        feature.append(get_direction(feature[0],feature[1],s[0],s[1])) #direction
+        feature.append((feature[0]-s[0])) #vectorx
+        feature.append((feature[1]-s[1])) #vectory
+        #feature.append((feature[0]-feature[2])/(feature[1]+1))
         s = [feature[0], feature[1]]
-        feature = feature[1:]
+        feature = feature[2:]
+        #feature[0] /= 400
+        #print(feature)
         feature = np.array(feature)
         feature = feature.reshape((-1,len(feature)))
+        #print(feature)
         # 3.2. If the game is over or passed, the game process will reset
         #      the scene and wait for ml process doing resetting job.
         if scene_info.status == GameStatus.GAME_OVER or \
@@ -90,7 +93,10 @@ def ml_loop():
 
             if y == 0:
                 comm.send_instruction(scene_info.frame, PlatformAction.NONE)
+                print('NONE')
             elif y == 1:
                 comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
+                print('LEFT')
             elif y == 2:
                 comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
+                print('RIGHT')
