@@ -68,24 +68,33 @@ def ml_loop():
 
         # 3.4. Send the instruction for this frame to the game process
         if not ball_served:
-            comm.send_instruction(scene_info.frame, PlatformAction.SERVE_TO_RIGHT)
-            ball_served = True
+            if scene_info.platform[0] < 30:
+                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
+            elif scene_info.platform[0] > 30:
+                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
+            else:
+                comm.send_instruction(scene_info.frame, PlatformAction.SERVE_TO_RIGHT)
+                ball_served = True
         elif lock == True:
             if ball_y == plat_y-5:
                 print("unlock")
                 lock = False
             if plat_y-ball_y <= 15:
-                if ball_x < plat_x:
-                    comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
-                else:
-                    comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
+                comm.send_instruction(scene_info.frame, PlatformAction.NONE)
+            #elif ball_y > 370:
+            #    if ball_x < plat_x:
+            #        comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
+            #    elif ball_x > plat_x:
+            #        comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
+            #    else:
+            #        comm.send_instruction(scene_info.frame, PlatformAction.NONE)
             elif plat_x > est-15:
                 comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
             elif plat_x < est-15:
                 comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
             else:
                 comm.send_instruction(scene_info.frame, PlatformAction.NONE)    
-        elif ball_y > (lowest+150) and not lock and (ball_y - old_y) > 0:
+        elif ball_y > (lowest+10) and not lock and (ball_y - old_y) > 0:
             lock = True
             print("locked")
             vy = (ball_y-old_y)
@@ -96,12 +105,14 @@ def ml_loop():
             #print("velocity of y =" + str(vy))
             #plat_y = 400
             if ball_x - old_x > 0: #move right
+                print('MR')
                 if (200-ball_x)/vx > (plat_y-ball_y)/vy:
                     est = (plat_y-ball_y)/vy*vx+ball_x
                 else: #hit x = 200
                     hit_y = ball_y+(200-ball_x)/vx*vy
                     est = 200 - (plat_y-hit_y)/vy*vx
             else: #move left
+                print("ML")
                 if (ball_x-0)/vx > (plat_y-ball_y)/vy:
                     est = ball_x-(plat_y-ball_y)/vy*vx
                 else: #hit x = 0
@@ -111,9 +122,9 @@ def ml_loop():
             print("est=" + str(est))
             comm.send_instruction(scene_info.frame, PlatformAction.NONE)
         else:
-            if plat_x < 100:
+            if plat_x < 85:
                 comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
-            elif plat_x > 100:
+            elif plat_x > 85:
                 comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
             else:
                 comm.send_instruction(scene_info.frame, PlatformAction.NONE)
