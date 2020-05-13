@@ -128,33 +128,18 @@ def ml_loop(side: str):
         feat1 = np.array(feat1)
         feat1 = feat1.reshape((-1, len(feat1)))
 
-        #filename = path.join(path.dirname(__file__), 'P1ml.pickle')
-        #p1ml = pickle.load(open(filename, 'rb'))
+        filename = path.join(path.dirname(__file__), 'P1ml.pickle')
+        p1ml = pickle.load(open(filename, 'rb'))
 
         # 3.4 Send the instruction for this frame to the game process
         if not ball_served:
             comm.send_to_game({"frame": scene_info["frame"], "command": "SERVE_TO_LEFT"})
             ball_served = True      
-        elif y < 421 and y > 420-vy and vy >0:
-            if blockx > 100:
+        else:         
+            y = p1ml.predict(feat1)
+            if y <= 0.5:
+                comm.send_to_game({"frame": scene_info["frame"], "command": "NONE"})
+            elif y > 0.5 and y <= 1.5:
                 comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
-            elif blockx < 70:
-                comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})     
-            else:
-                if vb > 0:
-                    comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
-                else:
-                    comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
-        else:
-            est = pdtx(x,y,vx,vy)
-            if platx1 < (est-15):
+            elif y > 1.5:
                 comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
-            else:
-                comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})            
-            #y = p1ml.predict(feat1)
-            #if y <= 0.5:
-            #    comm.send_to_game({"frame": scene_info["frame"], "command": "NONE"})
-            #elif y > 0.5 and y <= 1.5:
-            #    comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
-            #elif y > 1.5:
-            #    comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
