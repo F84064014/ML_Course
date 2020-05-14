@@ -1,101 +1,285 @@
 """
 The template of the script for the machine learning process in game pingpong
 """
-import pickle
-from os import path
-import numpy as np
+
+# Import the necessary modules and classes
 from mlgame.communication import ml as comm
 
-def ml_loop(side: str):
-    """
-    The main loop for the machine learning process
-    The `side` parameter can be used for switch the code for either of both sides,
-    so you can write the code for both sides in the same script. Such as:
-    ```python
-    if side == "1P":
-        ml_loop_for_1P()
-    else:
-        ml_loop_for_2P()
-    ```
-    @param side The side which this script is executed for. Either "1P" or "2P".
-    """
-    ball_served = False
-    
-    filename = path.join(path.dirname(__file__), 'save', 'ranf_mid.pickle')
-    with open(filename, 'rb') as file: # read binary
-        clf = pickle.load(file)
-    
-    ball_prev = [80, 415] # ball's initial point 
-    
-    def get_dir(vector_x, vector_y):
-        if(vector_x >= 0 and vector_y >= 0):
-            return [0, 0, 0, 1]
-        elif(vector_x > 0 and vector_y < 0):
-            return [0, 0, 1, 0]
-        elif(vector_x < 0 and vector_y > 0):
-            return [0, 1, 0, 0]
-        else :
-            return [1, 0, 0, 0]
-        # elif(vector_x < 0 and vector_y < 0):
-        #     return [1, 0, 0, 0]
-
-    def move_to(player, pred) : # move platform to predicted position to catch ball 
-        if player == '1P':
-            if scene_info["platform_1P"][0]+20 > (pred-1) and scene_info["platform_1P"][0]+20 < (pred+1): return 0 # NONE
-            elif scene_info["platform_1P"][0]+20 <= (pred-1) : return 1 # goes right
-            else : return 2 # goes left
-        else :
-            if scene_info["platform_2P"][0]+20 > (pred-2) and scene_info["platform_2P"][0]+20 < (pred+2): return 0 # NONE
-            elif scene_info["platform_2P"][0]+20 <= (pred-2) : return 1 # goes right
-            else : return 2 # goes left
-
-    # 2. Inform the game process that ml process is ready
+def P2_loop():
     comm.ml_ready()
-
-    # 3. Start an endless loop
+    prev_x = 0
+    prev_y = 0
+    prev_bx = 0
     while True:
         scene_info = comm.recv_from_game()
-        
-        feature = []
-        feature.append(scene_info["ball"][0])
-        feature.append(scene_info["ball"][1])
-        # feature.append(scene_info["blocker"][0])
-        
-        arr = get_dir(scene_info["ball"][0] - ball_prev[0], scene_info["ball"][1] - ball_prev[1])
-        feature.append(arr[0])
-        feature.append(arr[1])
-        feature.append(arr[2])
-        feature.append(arr[3])
-        if side == "1P":
-            feature.append(1)
-        else: 
-            feature.append(2)    
-
-        ball_prev = [scene_info["ball"][0], scene_info["ball"][1]]
-        feature = np.array(feature)
-        feature = feature.reshape((-1, 7)) # reshape array into 7 column
-        # print(feature)
-            
         if scene_info["status"] != "GAME_ALIVE":
-            # Do some updating or resetting stuff
-            ball_served = False
-
+            prev_x = scene_info["ball"][0]
+            prev_y = scene_info["ball"][1]
             comm.ml_ready()
             continue
-
-        # 3.4 Send the instruction for this frame to the game process
-        if not ball_served:
-            comm.send_to_game({"frame": scene_info["frame"], "command": "SERVE_TO_LEFT"})
-            ball_served = True
-        else:
-            if side == "1P":
-                command = move_to(player = "1P", pred = clf.predict(feature))
+        dx = scene_info["ball"][0] - prev_x
+        dy = scene_info["ball"][1] - prev_y
+        prev_x = scene_info["ball"][0]
+        prev_y = scene_info["ball"][1]
+        bdx = scene_info["blocker"][0] - prev_bx
+        prev_bx = scene_info["blocker"][0]
+        
+        if dy == 0:
+            continue
+        
+        rtn_val = -100
+        if dy > 0:
+            if prev_y < 235: # go down
+                rtn_val = p2_bounce(prev_x, prev_y, dx, dy, prev_bx, bdx, 0)
             else:
-                command = move_to(player = "2P", pred = clf.predict(feature))
+                rtn_val = p2_downward(prev_x, prev_y, dx, dy, prev_bx, bdx)
+        else:   # go up
+            if prev_y + dy <= 80:
+                if p2_bounce(prev_x + dx, 80, dx, -dy, prev_bx, bdx, 1) == True:
+                    if dx > 0:
+                        comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
+                    else:
+                        comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
+                else:
+                    if dx < 0:
+                        comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
+                    else:
+                        comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
+                continue
+            if prev_y < 235:
+                rtn_val = p2_bounce_back(prev_x, prev_y, dx, dy)
+            else:
+                rtn_val = p2_upward(prev_x, prev_y, dx, dy, prev_bx, bdx)
+        
+        if scene_info["platform_2P"][0] + 20 > rtn_val + 14:
+            comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
+        elif scene_info["platform_2P"][0] + 20 < rtn_val - 14:
+            comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
 
-            if command == 0:
-                comm.send_to_game({"frame": scene_info["frame"], "command": "NONE"})
-            elif command == 1:
-                comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
-            else :
-                comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
+def p2_bounce(x, y, dx, dy, bx, bdx, flag):
+    while y < 235:
+        bx += bdx
+        if bx >= 170:
+            bx = 170
+            bdx = - bdx
+        elif bx <= 0:
+            bx = 0
+            bdx = -bdx
+
+        y += dy
+        x += dx
+        if x >= 195:
+            x = 195
+            dx = -dx
+        elif x <= 0:
+            x = 0
+            dx = -dx
+
+    if x >= bx - 5 and x <= bx + 30:
+        if flag == 1:
+            return True
+        return p2_bounce_back(x, y, dx, -dy)
+    else:
+        if flag == 1:
+            return False
+        return p2_downward(x, y, dx, dy, bx, bdx)
+    
+def p2_bounce_back(x, y, dx, dy):
+    while y > 80:
+        y += dy
+        x += dx
+        if x >= 195:
+            x = 195
+            dx = -dx
+        elif x <= 0:
+            x = 0
+            dx = -dx
+    return x
+
+def p2_downward(x, y, dx, dy, bx, bdx):
+    while y < 415:
+        bx += bdx
+        if bx >= 170:
+            bx = 170
+            bdx = - bdx
+        elif bx <= 0:
+            bx = 0
+            bdx = -bdx
+        
+        y += dy
+        x += dx
+        if y <= 260 and x >= bx - 5 and x <= bx + 30:
+            dx = -dx
+        elif x >= 195:
+            x = 195
+            dx = -dx
+        elif x <= 0:
+            x = 0
+            dx = -dx
+    y = 415
+    dy = -dy
+    return p2_upward(x, y, dx, dy, bx, bdx)
+
+def p2_upward(x, y, dx, dy, bx, bdx):
+    while y > 235:
+        bx += bdx
+        if bx >= 170:
+            bx = 170
+            bdx = - bdx
+        elif bx <= 0:
+            bx = 0
+            bdx = -bdx
+        
+        y += dy
+        x += dx
+        if y <= 260 and x >= bx - 5 and x <= bx + 30:
+            dx = -dx
+        elif x >= 195:
+            x = 195
+            dx = -dx
+        elif x <= 0:
+            x = 0
+            dx = -dx
+    return p2_bounce_back(x, y, dx, dy)
+
+def P1_loop():
+    comm.ml_ready()
+    prev_x = 0
+    prev_y = 0
+    prev_bx = 0
+    while True:
+        scene_info = comm.recv_from_game()
+        if scene_info["status"] != "GAME_ALIVE":
+            prev_x = scene_info["ball"][0]
+            prev_y = scene_info["ball"][1]
+            comm.ml_ready()
+            continue
+        dx = scene_info["ball"][0] - prev_x
+        dy = scene_info["ball"][1] - prev_y
+        prev_x = scene_info["ball"][0]
+        prev_y = scene_info["ball"][1]
+        bdx = scene_info["blocker"][0] - prev_bx
+        prev_bx = scene_info["blocker"][0]
+        if dy == 0:
+            continue
+        
+        rtn_val = -100
+        if dy < 0: # go up
+            if prev_y > 260:
+                rtn_val = p1_bounce(prev_x, prev_y, dx, dy, prev_bx, bdx, 0)
+            else:
+                rtn_val = p1_upward(prev_x, prev_y, dx, dy, prev_bx, bdx)
+        else:   # go down
+            if prev_y + dy >= 415:
+                if p1_bounce(prev_x + dx, 415, dx, -dy, prev_bx, bdx, 1) == True:
+                    if dx > 0:
+                        comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
+                    else:
+                        comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
+                else:
+                    if dx < 0:
+                        comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
+                    else:
+                        comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
+                continue
+            if prev_y > 260:
+                rtn_val = p1_bounce_back(prev_x, prev_y, dx, dy)
+            else:
+                rtn_val = p1_downward(prev_x, prev_y, dx, dy, prev_bx, bdx)
+        
+        if scene_info["platform_1P"][0] + 20 > rtn_val + 14:
+            comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
+        elif scene_info["platform_1P"][0] + 20 < rtn_val - 14:
+            comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
+
+def p1_bounce(x, y, dx, dy, bx, bdx, flag):
+    while y > 260:
+        bx += bdx
+        if bx >= 170:
+            bx = 170
+            bdx = - bdx
+        elif bx <= 0:
+            bx = 0
+            bdx = -bdx
+
+        y += dy
+        x += dx
+        if x >= 195:
+            x = 195
+            dx = -dx
+        elif x <= 0:
+            x = 0
+            dx = -dx
+
+    if x >= bx - 5 and x <= bx + 30:
+        if flag == 1:
+            return True
+        return p1_bounce_back(x, y, dx, -dy)
+    else:
+        if flag == 1:
+            return False
+        return p1_upward(x, y, dx, dy, bx, bdx)
+    
+def p1_bounce_back(x, y, dx, dy):
+    while y < 415:
+        y += dy
+        x += dx
+        if x >= 195:
+            x = 195
+            dx = -dx
+        elif x <= 0:
+            x = 0
+            dx = -dx
+    return x
+
+def p1_upward(x, y, dx, dy, bx, bdx):
+    while y > 80:
+        bx += bdx
+        if bx >= 170:
+            bx = 170
+            bdx = - bdx
+        elif bx <= 0:
+            bx = 0
+            bdx = -bdx
+        
+        y += dy
+        x += dx
+        if y >= 235 and x >= bx - 5 and x <= bx + 30:
+            dx = -dx
+        elif x >= 195:
+            x = 195
+            dx = -dx
+        elif x <= 0:
+            x = 0
+            dx = -dx
+    y = 80
+    dy = -dy
+    return (p1_downward(x, y, dx, dy, bx, bdx) + p1_downward(x, y, -dx, dy, bx, bdx)) / 2
+
+def p1_downward(x, y, dx, dy, bx, bdx):
+    while y < 260:
+        bx += bdx
+        if bx >= 170:
+            bx = 170
+            bdx = - bdx
+        elif bx <= 0:
+            bx = 0
+            bdx = -bdx
+        
+        y += dy
+        x += dx
+        if y >= 235 and x >= bx - 5 and x <= bx + 30:
+            dx = -dx
+        elif x >= 195:
+            x = 195
+            dx = -dx
+        elif x <= 0:
+            x = 0
+            dx = -dx
+    return p1_bounce_back(x, y, dx, dy)
+
+def ml_loop(side: str):
+    if side == '2P':
+        P2_loop()
+    else:
+        P1_loop()
