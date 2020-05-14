@@ -21,7 +21,7 @@ def ml_loop(side: str):
     """
     ball_served = False
     
-    filename = path.join(path.dirname(__file__), 'save', 'RANF blocker.pickle')
+    filename = path.join(path.dirname(__file__), 'save', 'ranf_mid.pickle')
     with open(filename, 'rb') as file: # read binary
         clf = pickle.load(file)
     
@@ -41,12 +41,12 @@ def ml_loop(side: str):
 
     def move_to(player, pred) : # move platform to predicted position to catch ball 
         if player == '1P':
-            if scene_info["platform_1P"][0]+20 > (pred-10) and scene_info["platform_1P"][0]+20 < (pred+10): return 0 # NONE
-            elif scene_info["platform_1P"][0]+20 <= (pred-10) : return 1 # goes right
+            if scene_info["platform_1P"][0]+20 > (pred-1) and scene_info["platform_1P"][0]+20 < (pred+1): return 0 # NONE
+            elif scene_info["platform_1P"][0]+20 <= (pred-1) : return 1 # goes right
             else : return 2 # goes left
         else :
-            if scene_info["platform_2P"][0]+20 > (pred-10) and scene_info["platform_2P"][0]+20 < (pred+10): return 0 # NONE
-            elif scene_info["platform_2P"][0]+20 <= (pred-10) : return 1 # goes right
+            if scene_info["platform_2P"][0]+20 > (pred-2) and scene_info["platform_2P"][0]+20 < (pred+2): return 0 # NONE
+            elif scene_info["platform_2P"][0]+20 <= (pred-2) : return 1 # goes right
             else : return 2 # goes left
 
     # 2. Inform the game process that ml process is ready
@@ -59,17 +59,17 @@ def ml_loop(side: str):
         feature = []
         feature.append(scene_info["ball"][0])
         feature.append(scene_info["ball"][1])
-        feature.append(scene_info["blocker"][0])
+        # feature.append(scene_info["blocker"][0])
         
         arr = get_dir(scene_info["ball"][0] - ball_prev[0], scene_info["ball"][1] - ball_prev[1])
         feature.append(arr[0])
         feature.append(arr[1])
         feature.append(arr[2])
         feature.append(arr[3])
-        # if side == "1P":
-        #     feature.append(1)
-        # else: 
-        #     feature.append(2)    
+        if side == "1P":
+            feature.append(1)
+        else: 
+            feature.append(2)    
 
         ball_prev = [scene_info["ball"][0], scene_info["ball"][1]]
         feature = np.array(feature)
