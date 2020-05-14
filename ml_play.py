@@ -1,117 +1,101 @@
 """
-The template of the main script of the machine learning process
+The template of the script for the machine learning process in game pingpong
 """
+import pickle
+from os import path
+import numpy as np
+from mlgame.communication import ml as comm
 
-import games.arkanoid.communication as comm
-from games.arkanoid.communication import ( \
-    SceneInfo, GameStatus, PlatformAction
-)
-
-def ml_loop():
+def ml_loop(side: str):
     """
-    The main loop of the machine learning process
-
-    This loop is run in a separate process, and communicates with the game process.
-
-    Note that the game process won't wait for the ml process to generate the
-    GameInstruction. It is possible that the frame of the GameInstruction
-    is behind of the current frame in the game process. Try to decrease the fps
-    to avoid this situation.
+    The main loop for the machine learning process
+    The `side` parameter can be used for switch the code for either of both sides,
+    so you can write the code for both sides in the same script. Such as:
+    ```python
+    if side == "1P":
+        ml_loop_for_1P()
+    else:
+        ml_loop_for_2P()
+    ```
+    @param side The side which this script is executed for. Either "1P" or "2P".
     """
-
-    # === Here is the execution order of the loop === #
-    # 1. Put the initialization code here.
     ball_served = False
+    
+    filename = path.join(path.dirname(__file__), 'save', 'RANF blocker.pickle')
+    with open(filename, 'rb') as file: # read binary
+        clf = pickle.load(file)
+    
+    ball_prev = [80, 415] # ball's initial point 
+    
+    def get_dir(vector_x, vector_y):
+        if(vector_x >= 0 and vector_y >= 0):
+            return [0, 0, 0, 1]
+        elif(vector_x > 0 and vector_y < 0):
+            return [0, 0, 1, 0]
+        elif(vector_x < 0 and vector_y > 0):
+            return [0, 1, 0, 0]
+        else :
+            return [1, 0, 0, 0]
+        # elif(vector_x < 0 and vector_y < 0):
+        #     return [1, 0, 0, 0]
 
-    lowest = -1 #lowest block position
-    lock = False #locker
-    old_x = 0
-    old_y = 0
-    est = -1 # the estimate position of x
+    def move_to(player, pred) : # move platform to predicted position to catch ball 
+        if player == '1P':
+            if scene_info["platform_1P"][0]+20 > (pred-10) and scene_info["platform_1P"][0]+20 < (pred+10): return 0 # NONE
+            elif scene_info["platform_1P"][0]+20 <= (pred-10) : return 1 # goes right
+            else : return 2 # goes left
+        else :
+            if scene_info["platform_2P"][0]+20 > (pred-10) and scene_info["platform_2P"][0]+20 < (pred+10): return 0 # NONE
+            elif scene_info["platform_2P"][0]+20 <= (pred-10) : return 1 # goes right
+            else : return 2 # goes left
 
-    # 2. Inform the game process that ml process is ready before start the loop.
+    # 2. Inform the game process that ml process is ready
     comm.ml_ready()
 
-    # 3. Start an endless loop.
+    # 3. Start an endless loop
     while True:
-        # 3.1. Receive the scene information sent from the game process.
-        scene_info = comm.get_scene_info()
+        scene_info = comm.recv_from_game()
+        
+        feature = []
+        feature.append(scene_info["ball"][0])
+        feature.append(scene_info["ball"][1])
+        feature.append(scene_info["blocker"][0])
+        
+        arr = get_dir(scene_info["ball"][0] - ball_prev[0], scene_info["ball"][1] - ball_prev[1])
+        feature.append(arr[0])
+        feature.append(arr[1])
+        feature.append(arr[2])
+        feature.append(arr[3])
+        # if side == "1P":
+        #     feature.append(1)
+        # else: 
+        #     feature.append(2)    
 
-        # 3.2. If the game is over or passed, the game process will reset
-        #      the scene and wait for ml process doing resetting job.
-        if scene_info.status == GameStatus.GAME_OVER or \
-            scene_info.status == GameStatus.GAME_PASS:
-            # Do some stuff if needed
+        ball_prev = [scene_info["ball"][0], scene_info["ball"][1]]
+        feature = np.array(feature)
+        feature = feature.reshape((-1, 7)) # reshape array into 7 column
+        # print(feature)
+            
+        if scene_info["status"] != "GAME_ALIVE":
+            # Do some updating or resetting stuff
             ball_served = False
 
-            # 3.2.1. Inform the game process that ml process is ready
             comm.ml_ready()
             continue
 
-        # 3.3. Put the code here to handle the scene information
-        ball_x = scene_info.ball[0]
-        ball_y = scene_info.ball[1]
-        plat_x = scene_info.platform[0]
-        plat_y = scene_info.platform[1]
-
-        for x in scene_info.bricks:
-            if x[1] > lowest:
-                lowest = x[1]
-        for x in scene_info.hard_bricks:
-            if x[1] > lowest:
-                lowest = x[1]
-        print(scene_info.ball)
-        #print("con1" + str(ball_y>(lowest+10)))
-        #print("con2" + str(not lock))
-        #print("con3" + str(ball_y-old_y))
-        #print(est)
-
-        # 3.4. Send the instruction for this frame to the game process
+        # 3.4 Send the instruction for this frame to the game process
         if not ball_served:
-            comm.send_instruction(scene_info.frame, PlatformAction.SERVE_TO_RIGHT)
+            comm.send_to_game({"frame": scene_info["frame"], "command": "SERVE_TO_LEFT"})
             ball_served = True
-        elif lock == True:
-            if ball_y == plat_y-5:
-                print("unlock")
-                lock = False
-            if plat_x > est-20:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
-            elif plat_x < est-20:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
-            else:
-                comm.send_instruction(scene_info.frame, PlatformAction.NONE)    
-        elif ball_y > (lowest+110) and not lock and (ball_y - old_y) > 0:
-            lock = True
-            print("locked")
-            vy = (ball_y-old_y)
-            vx = abs(ball_x-old_x) #velocity of x
-            if vx < 7:
-                vx = 7
-            print("velocity of x =" + str(vx))
-            print("velocity of y =" + str(vy))
-            #plat_y = 400
-            if ball_x - old_x > 0: #move right
-                if (200-ball_x)/vx > (plat_y-ball_y)/vy:
-                    est = (plat_y-ball_y)/vy*vx+ball_x
-                else: #hit x = 200
-                    hit_y = ball_y+(200-ball_x)/vx*vy
-                    est = 200 - (plat_y-hit_y)/vy*vx
-            else: #move left
-                if (ball_x-0)/vx > (plat_y-ball_y)/vy:
-                    est = ball_x-(plat_y-ball_y)/vy*vx
-                else: #hit x = 0
-                    hit_y = ball_y+ball_x/vx*vy
-                    est = (plat_y-hit_y)/(ball_y-old_y)*vx
-            print("begin with " + str(ball_x) + "," + str(ball_y))
-            print("est=" + str(est))
-            comm.send_instruction(scene_info.frame, PlatformAction.NONE)
         else:
-            if plat_x < 100:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
-            elif plat_x > 100:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
+            if side == "1P":
+                command = move_to(player = "1P", pred = clf.predict(feature))
             else:
-                comm.send_instruction(scene_info.frame, PlatformAction.NONE)
-        
-        old_x = ball_x
-        old_y = ball_y
+                command = move_to(player = "2P", pred = clf.predict(feature))
+
+            if command == 0:
+                comm.send_to_game({"frame": scene_info["frame"], "command": "NONE"})
+            elif command == 1:
+                comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_RIGHT"})
+            else :
+                comm.send_to_game({"frame": scene_info["frame"], "command": "MOVE_LEFT"})
