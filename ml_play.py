@@ -1,117 +1,206 @@
-"""
-The template of the main script of the machine learning process
-"""
+class MLPlay:
+    def __init__(self, player):
+        self.player = player
+        if self.player == "player1":
+            self.player_no = 0
+        elif self.player == "player2":
+            self.player_no = 1
+        elif self.player == "player3":
+            self.player_no = 2
+        elif self.player == "player4":
+            self.player_no = 3
+        self.car_vel = 0                            # speed initial
+        self.car_pos = (0,0)                        # pos initial
+        self.car_lane = self.car_pos[0] // 70       # lanes 0 ~ 8
+        self.lanes = [35, 105, 175, 245, 315, 385, 455, 525, 595]  # lanes center
+        self.last_cmd = []
+        pass
 
-import games.arkanoid.communication as comm
-from games.arkanoid.communication import ( \
-    SceneInfo, GameStatus, PlatformAction
-)
+    def update(self, scene_info):
+        """
+        9 grid relative position
+        |    |    |    |    |    |
+        | 13 |  1 |  2 |  3 | 10 |
+        |    |    |  5 |    |    |
+        | 14 |  4 |  c |  6 | 11 |
+        |    |    |    |    |    |
+        | 15 |  7 |  8 |  9 | 12 |
+        |    |    |    |    |    |       
+        """
+        def check_grid():
+            grid = set()
+            speed_ahead = 100
+            if self.car_pos[0] <= 70:
+                grid.add(13)
+                grid.add(14)
+                grid.add(15)
+            if self.car_pos[0] >= 525:
+                grid.add(10)
+                grid.add(11)
+                grid.add(12)
+            if self.car_pos[0] <= 35: # left bound
+                grid.add(1)
+                grid.add(4)
+                grid.add(7)
+            elif self.car_pos[0] >= 595: # right bound
+                grid.add(3)
+                grid.add(6)
+                grid.add(9)
 
-def ml_loop():
-    """
-    The main loop of the machine learning process
+            for car in scene_info["cars_info"]:
+                if car["id"] != self.player_no:
+                    x = self.car_pos[0] - car["pos"][0] # x relative position
+                    y = self.car_pos[1] - car["pos"][1] # y relative position
+                    if x <= 40 and x >= -40 :      
+                        if y > 0 and y < 300:
+                            grid.add(2)
+                            if y < 200:
+                                speed_ahead = car["velocity"]
+                                grid.add(5) 
+                        elif y < 0 and y > -200:
+                            grid.add(8)
+                    if x > -100 and x < -40 :
+                        if y > 80 and y < 250:
+                            grid.add(3)
+                        elif y < -80 and y > -200:
+                            grid.add(9)
+                        elif y < 80 and y > -80:
+                            grid.add(6)
+                    if x < 100 and x > 40:
+                        if y > 80 and y < 250:
+                            grid.add(1)
+                        elif y < -80 and y > -200:
+                            grid.add(7)
+                        elif y < 80 and y > -80:
+                            grid.add(4)
+                    if x > -160 and x < -100:
+                        if y > 80 and y < 250:
+                            grid.add(10)
+                        elif y < -80 and y > -200:
+                            grid.add(11)
+                        elif y < 80 and y > -80:
+                            grid.add(12)
+                    if x < 160 and x > 100:
+                        if y > 80 and y < 250:
+                            grid.add(13)
+                        elif y < -80 and y > -200:
+                            grid.add(14)
+                        elif y < 80 and y > -80:
+                            grid.add(15)
 
-    This loop is run in a separate process, and communicates with the game process.
+            self.last_cmd = move(grid= grid, speed_ahead = speed_ahead)
+            return self.last_cmd
 
-    Note that the game process won't wait for the ml process to generate the
-    GameInstruction. It is possible that the frame of the GameInstruction
-    is behind of the current frame in the game process. Try to decrease the fps
-    to avoid this situation.
-    """
+        def move(grid, speed_ahead): 
+            if self.player_no == 0:
+                print(grid)
+                print(self.car_pos[0])
+            if len(grid) == 0:
+                return ["SPEED"]
+            elif "MOVE_LEFT" in self.last_cmd: # if last command move left left detection first
+                if (2 not in grid): # Check forward 
+                    # Back to lane center
+                    if self.car_pos[0] > self.lanes[self.car_lane]:
+                        return ["SPEED", "MOVE_LEFT"]
+                    if self.car_pos[0] < self.lanes[self.car_lane]:
+                        return ["SPEED", "MOVE_RIGHT"]
+                    else :return ["SPEED"]
+                else:
+                    if (5 in grid): # NEED to BRAKE
+                        if (4 not in grid) and (7 not in grid): # turn left 
+                            if self.car_vel < speed_ahead:
+                                return ["SPEED", "MOVE_LEFT"]
+                            else:
+                                return ["BRAKE", "MOVE_LEFT"]
+                        elif (6 not in grid) and (9 not in grid): # turn right
+                            if self.car_vel < speed_ahead:
+                                return ["SPEED", "MOVE_RIGHT"]
+                            else:
+                                return ["BRAKE", "MOVE_RIGHT"]
+                        else : 
+                            if self.car_vel < speed_ahead:  # BRAKE
+                                return ["SPEED"]
+                            else:
+                                return ["BRAKE"]
+                    # 5 not in grid and 2 in grid
 
-    # === Here is the execution order of the loop === #
-    # 1. Put the initialization code here.
-    ball_served = False
+                    #at the rightmost lane
+                    if (self.car_pos[0] < 70 ):
+                        return ["SPEED", "MOVE_RIGHT"]
+                    if (1 not in grid) and (4 not in grid) and (7 not in grid): # turn left 
+                        return ["SPEED", "MOVE_LEFT"]
+                    if (3 not in grid) and (6 not in grid) and (9 not in grid): # turn right
+                        return ["SPEED", "MOVE_RIGHT"]
+                    if (1 not in grid) and (4 not in grid): # turn left 
+                        return ["SPEED", "MOVE_LEFT"]
+                    if (3 not in grid) and (6 not in grid): # turn right
+                        return ["SPEED", "MOVE_RIGHT"]
+                    if (4 not in grid) and (7 not in grid): # turn left 
+                        return ["MOVE_LEFT"]    
+                    if (6 not in grid) and (9 not in grid): # turn right
+                        return ["MOVE_RIGHT"]
+                    else:
+                        return []
+            else: #if last command not MOVE_LEFT right first
+                if (2 not in grid): # Check forward 
+                    # Back to lane center
+                    if self.car_pos[0] < self.lanes[self.car_lane]:
+                        return ["SPEED", "MOVE_RIGHT"]
+                    if self.car_pos[0] > self.lanes[self.car_lane]:
+                        return ["SPEED", "MOVE_LEFT"]
+                    else :return ["SPEED"]
+                else:
+                    if (5 in grid): # NEED to BRAKE
+                        if (6 not in grid) and (9 not in grid): # turn right
+                            if self.car_vel < speed_ahead:
+                                return ["SPEED", "MOVE_RIGHT"]
+                            else:
+                                return ["BRAKE", "MOVE_RIGHT"]
+                        elif (4 not in grid) and (7 not in grid): # turn left 
+                            if self.car_vel < speed_ahead:
+                                return ["SPEED", "MOVE_LEFT"]
+                            else:
+                                return ["BRAKE", "MOVE_LEFT"]
+                        else : 
+                            if self.car_vel < speed_ahead:  # BRAKE
+                                return ["SPEED"]
+                            else:
+                                return ["BRAKE"]
+                    # 5 not in grid and 2 in grid
 
-    lowest = -1 #lowest block position
-    lock = False #locker
-    old_x = 0
-    old_y = 0
-    est = -1 # the estimate position of x
+                    #at the rightmost lane
+                    if (self.car_pos[0] > 530 ):
+                        return ["SPEED", "MOVE_LEFT"]
+                    if (3 not in grid) and (6 not in grid) and (9 not in grid): # turn right
+                        return ["SPEED", "MOVE_RIGHT"]
+                    if (1 not in grid) and (4 not in grid) and (7 not in grid): # turn left 
+                        return ["SPEED", "MOVE_LEFT"]
+                    if (3 not in grid) and (6 not in grid): # turn right
+                        return ["SPEED", "MOVE_RIGHT"]
+                    if (1 not in grid) and (4 not in grid): # turn left 
+                        return ["SPEED", "MOVE_LEFT"]
+                    if (6 not in grid) and (9 not in grid): # turn right
+                        return ["MOVE_RIGHT"]
+                    if (4 not in grid) and (7 not in grid): # turn left 
+                        return ["MOVE_LEFT"]    
+                    else:
+                        return []                
+                                
+                    
+        if len(scene_info[self.player]) != 0:
+            self.car_pos = scene_info[self.player]
 
-    # 2. Inform the game process that ml process is ready before start the loop.
-    comm.ml_ready()
+        for car in scene_info["cars_info"]:
+            if car["id"]==self.player_no:
+                self.car_vel = car["velocity"]
 
-    # 3. Start an endless loop.
-    while True:
-        # 3.1. Receive the scene information sent from the game process.
-        scene_info = comm.get_scene_info()
+        if scene_info["status"] != "ALIVE":
+            return "RESET"
+        self.car_lane = self.car_pos[0] // 70
+        return check_grid()
 
-        # 3.2. If the game is over or passed, the game process will reset
-        #      the scene and wait for ml process doing resetting job.
-        if scene_info.status == GameStatus.GAME_OVER or \
-            scene_info.status == GameStatus.GAME_PASS:
-            # Do some stuff if needed
-            ball_served = False
-
-            # 3.2.1. Inform the game process that ml process is ready
-            comm.ml_ready()
-            continue
-
-        # 3.3. Put the code here to handle the scene information
-        ball_x = scene_info.ball[0]
-        ball_y = scene_info.ball[1]
-        plat_x = scene_info.platform[0]
-        plat_y = scene_info.platform[1]
-
-        for x in scene_info.bricks:
-            if x[1] > lowest:
-                lowest = x[1]
-        for x in scene_info.hard_bricks:
-            if x[1] > lowest:
-                lowest = x[1]
-        print(scene_info.ball)
-        #print("con1" + str(ball_y>(lowest+10)))
-        #print("con2" + str(not lock))
-        #print("con3" + str(ball_y-old_y))
-        #print(est)
-
-        # 3.4. Send the instruction for this frame to the game process
-        if not ball_served:
-            comm.send_instruction(scene_info.frame, PlatformAction.SERVE_TO_RIGHT)
-            ball_served = True
-        elif lock == True:
-            if ball_y == plat_y-5:
-                print("unlock")
-                lock = False
-            if plat_x > est-20:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
-            elif plat_x < est-20:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
-            else:
-                comm.send_instruction(scene_info.frame, PlatformAction.NONE)    
-        elif ball_y > (lowest+110) and not lock and (ball_y - old_y) > 0:
-            lock = True
-            print("locked")
-            vy = (ball_y-old_y)
-            vx = abs(ball_x-old_x) #velocity of x
-            if vx < 7:
-                vx = 7
-            print("velocity of x =" + str(vx))
-            print("velocity of y =" + str(vy))
-            #plat_y = 400
-            if ball_x - old_x > 0: #move right
-                if (200-ball_x)/vx > (plat_y-ball_y)/vy:
-                    est = (plat_y-ball_y)/vy*vx+ball_x
-                else: #hit x = 200
-                    hit_y = ball_y+(200-ball_x)/vx*vy
-                    est = 200 - (plat_y-hit_y)/vy*vx
-            else: #move left
-                if (ball_x-0)/vx > (plat_y-ball_y)/vy:
-                    est = ball_x-(plat_y-ball_y)/vy*vx
-                else: #hit x = 0
-                    hit_y = ball_y+ball_x/vx*vy
-                    est = (plat_y-hit_y)/(ball_y-old_y)*vx
-            print("begin with " + str(ball_x) + "," + str(ball_y))
-            print("est=" + str(est))
-            comm.send_instruction(scene_info.frame, PlatformAction.NONE)
-        else:
-            if plat_x < 100:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_RIGHT)
-            elif plat_x > 100:
-                comm.send_instruction(scene_info.frame, PlatformAction.MOVE_LEFT)
-            else:
-                comm.send_instruction(scene_info.frame, PlatformAction.NONE)
-        
-        old_x = ball_x
-        old_y = ball_y
+    def reset(self):
+        """
+        Reset the status
+        """
+        pass
